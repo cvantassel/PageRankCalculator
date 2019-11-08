@@ -1,0 +1,3 @@
+"Elapsed time: 7.917864 msecs"
+"Elapsed time: 4.009866 msecs"
+"Elapsed time: 5.710516 msecs"
