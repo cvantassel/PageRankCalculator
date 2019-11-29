@@ -2,7 +2,10 @@
   (:gen-class))
 
 (require '[clojure.string :as str])
-  (def incomingLinks (vec (replicate 4 [])))
+(def incomingLinks (vec (replicate 10000 [])))
+
+
+; PROCESSING FUNCTIONS
 
 ; Credit to: https://www.tutorialspoint.com/clojure/clojure_file_io.htm 
 (defn append-to-file
@@ -16,7 +19,9 @@
     ([num]
       (def outgoingLinks 
       (conj outgoingLinks 
-      (read-string (str "[" (subs num 2) "]"))))))
+      (read-string (str "[" 
+        (clojure.string/replace num #"^\d* " "")
+         "]"))))))
 
 (defn addToPageRank
      ([num]
@@ -40,15 +45,9 @@
 
 ;Credit to: https://stackoverflow.com/a/18319708
 (defn vec-remove
-  "remove elem in coll"
-  [coll pos]
-  (vec (concat (subvec coll 0 pos) [[]] (subvec coll (inc pos)))))
-
-(defn summation
-    ([x]
-    (reduce + (for [link x]
-         (/ (pageRank link) (count (outgoingLinks (.indexOf incomingLinks x)) ))))))
-
+  "remove elem in vect"
+  [vect pos]
+  (vec (concat (subvec vect 0 pos) [[]] (subvec vect (inc pos)))))
 
 (defn rewriteIncomingandRemoveFromOutgoing
   [link page]
@@ -57,7 +56,7 @@
     link  
     (conj (incomingLinks link) (.indexOf outgoingLinks page)) )
   )
-  (if (= link (last page))
+  (if (and (= link (last page)) (not (nth incomingLinks link)))
     (def outgoingLinks
       (vec-remove outgoingLinks (.indexOf outgoingLinks page))
     )))
@@ -69,56 +68,81 @@
         (rewriteIncomingandRemoveFromOutgoing link page)
       ))))
 
-(defn calculateAndUpdatePageRank
-  [] 
-  ; (clojure.java.io/delete-file "ranks.txt")
-   (spit "ranks.txt" "")
-  ;Calculate PageRank and append to file
-   (with-open [wrtr (clojure.java.io/writer "ranks.txt" :append true)]
-    (doseq [x incomingLinks]
-      (.write wrtr (str 
-      (+ 0.15 
-      (* 0.85 
-      (summation x) 
-      )) "\n"))
-  ))
-  ;Fill in new page ranks
-  (def pageRank [])
-  (process-file-by-lines "ranks.txt" identity addToPageRank))
 
+; CALCUATION FUNCTIONS
+
+(defn summation
+    ([coll]
+    (hash-map 
+      (keyword (str (.indexOf incomingLinks coll)))
+      (+ 0.15 (* 0.85 (reduce + (for [link coll]
+        (/ (get pageRank (keyword (str link))) (count (outgoingLinks (.indexOf incomingLinks coll)))) ))))
+    )
+    )
+)
+
+
+(defn calculatePageRank
+  [coll] 
+     (apply merge (mapv
+      summation coll
+      )
+  ))
+
+
+; CONCURRENCY
+
+(defn splitInTwo [numSeq]
+  (partition (/ (count numSeq) 2) numSeq))
+
+(defn splitInFour [numSeq]
+  (partition (/ (count numSeq) 4) numSeq))
+
+(defn split-8 [numSeq]
+  (partition (/ (count numSeq) 8) numSeq))
+
+(defn split-16 [numSeq]
+  (partition (/ (count numSeq) 16) numSeq))
+
+(defn split-32 [numSeq]
+  (partition (int (/ (count incomingLinks) 32)) numSeq))
+
+(defn split-64 [numSeq]
+  (partition (int (/ (count numSeq) 64)) numSeq))
+
+
+;MAIN
 
 (defn -main
   "Calculates Page Rank and outputs timings and ranks to files."
   [& args]
-  (println "Hello, Caleb!")
 
-;SETUP 
+  ;SETUP 
   ;Read Input File
   (def outgoingLinks [])
   (process-file-by-lines "pages.txt" identity addToOutput)
 
   ;Generate incomingLinks
-  (def incomingLinks (vec (replicate 4 [])))
+  (def incomingLinks (vec (replicate 10000 [])))
   (generateIncomingLinks)
 
-  ;Read Input File
+  ;Read Input File (again)
   (def outgoingLinks [])
   (process-file-by-lines "pages.txt" identity addToOutput)
 
-  (def pageRank (vec (replicate 4 1)))
+  ;Initialize Page Rank
+  (def pageRank (hash-map))
+  (doseq [x (range 10000)]
+  (def pageRank (assoc pageRank (keyword (str x)) 1)))
 
-  ;Fill in new page ranks
-  ; (def pageRank [])
-  ; (process-file-by-lines "ranks.txt" identity addToPageRank)
-  ; (calculateAndUpdatePageRank)
-  
-;DO CALCULATION AND TIME
-  (with-open [wrtr (clojure.java.io/writer "time.txt" :append true)]
-    (dotimes [n 3]
-      (.write wrtr (str 
-      (with-out-str (time (dotimes [n 3] (calculateAndUpdatePageRank))))
-      ))))
+  (println "Setup done. Starting calcuations.")
 
   
+;DO CALCULATION AND WRITE TO OUTPUT FILE
 
+  (dotimes [n 2]
+    (def pageRank (apply merge (pmap calculatePageRank (split-64 incomingLinks))))
+  )
+
+  (spit "time.txt" (.toString pageRank)) 
 )
